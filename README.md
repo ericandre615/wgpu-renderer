@@ -32,3 +32,8 @@ For example using node/npm you can run `npx serve .`
 
 Since the files have already been compiled you don't need to have `wasm-pack` or even Rust instead in order to run the 
 web/wasm based version. Just run a local server and view `index.html`
+
+### Example
+
+An example of the renderer running on the Web (left) and Native Desktop (right)
+![wgpu renderer test screen](assets/screen-capture-example.png)
