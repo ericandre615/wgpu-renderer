@@ -1,0 +1,12 @@
+{
+  "name": "wgpu-renderer",
+  "version": "0.1.0",
+  "files": [
+    "wgpu_renderer_bg.wasm",
+    "wgpu_renderer.js",
+    "wgpu_renderer.d.ts"
+  ],
+  "module": "wgpu_renderer.js",
+  "types": "wgpu_renderer.d.ts",
+  "sideEffects": false
+}
