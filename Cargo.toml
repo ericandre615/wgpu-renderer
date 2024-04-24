@@ -25,6 +25,7 @@ pollster = "0.2"
 bytemuck = { version = "1.12", features = ["derive"] }
 cgmath = "0.18"
 tobj = { version = "3.2.1", features = ["async"] }
+gltf = "1.4.0"
 # getrandom is not a direct dependency, but we still need to enable the js feature for the project to build on wasm
 # this seems like it may have been introduced after adding  tobj?
 getrandom = { version = "0.2", features = ["js"] }

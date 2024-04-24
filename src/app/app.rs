@@ -456,14 +456,24 @@ impl App {
         //     }
         // );
 
-        let obj_model = resources::load_model(
-            // "meshes/cube/cube.obj",
-            // "meshes/monkey/lp-monkey.obj",
-            // "meshes/monkey/monkey-rev-c.obj",
-            "meshes/greg/greg-applied.obj",
+        // let obj_model = resources::load_model(
+        //     // "meshes/cube/cube.obj",
+        //     // "meshes/monkey/lp-monkey.obj",
+        //     // "meshes/monkey/monkey-rev-c.obj",
+        //     "meshes/greg/greg-applied.obj",
+        //     // "meshes/greg/greg-applied-uv.obj",
+        //     &device,
+        //     &queue,
+        //     &texture_bind_group_layout
+        // )
+        // .await
+        // .unwrap();
+
+        let obj_model = resources::load_model_gltf(
+            "meshes/greg/greg_basic_export_applied_uv.gltf",
             &device,
             &queue,
-            &texture_bind_group_layout
+            &texture_bind_group_layout,
         )
         .await
         .unwrap();

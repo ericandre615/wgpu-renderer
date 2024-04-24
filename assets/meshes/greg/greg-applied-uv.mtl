@@ -1,0 +1,23 @@
+# Blender 4.1.0 MTL File: 'GREGv2_base_sculpt_retopo_custom_uv_unwrap.blend'
+# www.blender.org
+
+newmtl GregUVTexture
+Ns 250.000000
+Ka 1.000000 1.000000 1.000000
+Ks 0.500000 0.500000 0.500000
+Ke 0.000000 0.000000 0.000000
+Ni 1.500000
+d 1.000000
+illum 2
+map_Kd greg_basic_texture.png
+
+newmtl Material
+Ns 306.221802
+Ka 1.000000 1.000000 1.000000
+Kd 0.000000 0.000000 0.000000
+Ks 0.397194 0.397194 0.397194
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 2
+map_Kd greg-eye-color.png

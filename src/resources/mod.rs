@@ -5,6 +5,8 @@ use cfg_if::cfg_if;
 
 use wgpu::util::DeviceExt;
 
+use gltf::Gltf;
+
 use crate::{
     model::{
         Model,
@@ -83,6 +85,170 @@ pub async fn load_texture(
 const DEFAULT_DIFFUSE_PATH: &str = "meshes/core/empty-texture.png";
 const DEFAULT_NORMAL_PATH: &str = "meshes/core/empty-normal.png";
 
+pub async fn load_model_gltf(
+    file_name: &str,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    layout: &wgpu::BindGroupLayout,
+) -> anyhow::Result<Model> {
+    let gltf_text = load_string(file_name).await?;
+    let gltf_cursor = Cursor::new(gltf_text);
+    let gltf_reader = BufReader::new(gltf_cursor);
+    let gltf = Gltf::from_reader(gltf_reader)?;
+
+    let mut basepath = PathBuf::from(file_name);
+    basepath.pop();
+
+    // load Buffers
+    let mut buffer_data = Vec::new();
+    for buffer in gltf.buffers() {
+        match buffer.source() {
+            gltf::buffer::Source::Bin => {
+                if let Some(blob) = gltf.blob.as_deref() {
+                    buffer_data.push(blob.into());
+                };
+            }
+            gltf::buffer::Source::Uri(uri) => {
+                let binary_path: PathBuf = [basepath.clone(), uri.into()].iter().collect();//m.diffuse_texture.clone().into()].iter().collect();
+                let bin = load_binary(binary_path.to_str().unwrap()).await.expect("File Not Found");
+                buffer_data.push(bin);
+            }
+        }
+    }
+
+    let mut materials = Vec::new();
+    for material in gltf.materials() {
+        let pbr = material.pbr_metallic_roughness();
+        let texture_source = &pbr.base_color_texture()
+            .map(|tex| {
+                tex.texture().source().source()
+            })
+            .expect("Issue Finding Texture Source");
+        let is_normal_map = false;
+        let default_normal_texture = load_texture(DEFAULT_NORMAL_PATH, true, device, queue).await?;
+        match texture_source {
+            gltf::image::Source::View { view, mime_type } => {
+                // Image texture data is in the binary
+                let diffuse_texture = Texture::from_bytes(
+                    device,
+                    queue,
+                    &buffer_data[view.buffer().index()],
+                    file_name,
+                    is_normal_map,
+                )
+                .expect("Issue loading Diffuse Texture");
+
+                let mat = Material::new(
+                    device,
+                    material.name().unwrap_or("Default Material"),
+                    diffuse_texture,
+                    default_normal_texture,
+                    layout,
+                );
+                materials.push(mat);
+            }
+            gltf::image::Source::Uri { uri, mime_type } => {
+                let full_path: PathBuf = [basepath.clone(), uri.into()].iter().collect();
+                let full_uri = full_path.to_str().unwrap();
+                // Image texture data is in a separate image file
+                let diffuse_texture = load_texture(full_uri, is_normal_map, device, queue).await?;
+
+                let mat = Material::new(
+                    device,
+                    material.name().unwrap_or("Default Material"),
+                    diffuse_texture,
+                    default_normal_texture,
+                    layout,
+                );
+                materials.push(mat);
+            }
+        }
+    }
+
+    let mut meshes = Vec::new();
+
+    for scene in gltf.scenes() {
+        for node in scene.nodes() {
+            let mesh = node.mesh().expect("Unable to load Mesh");
+            let primitives = mesh.primitives();
+
+            primitives.for_each(|primitive| {
+                let reader = primitive.reader(|buffer| {
+                    Some(&buffer_data[buffer.index()])
+                });
+
+                let mut vertices = Vec::new();
+
+                if let Some(vertex_attribute) = reader.read_positions() {
+                    vertex_attribute.for_each(|vertex| {
+                        vertices.push(ModelVertex {
+                            position: vertex,
+                            tex_coords: Default::default(),
+                            normal: Default::default(),
+                            tangent: Default::default(),
+                            bitangent: Default::default(),
+                        })
+                    });
+                }
+
+                if let Some(normal_attribute) = reader.read_normals() {
+                    let mut normal_index = 0;
+                    normal_attribute.for_each(|normal| {
+                        vertices[normal_index].normal = normal;
+
+                        normal_index += 1;
+                    });
+                }
+
+                if let Some(tex_coord_attribute) = reader.read_tex_coords(0).map(|v| v.into_f32()) {
+                    let mut tex_coord_index = 0;
+                    tex_coord_attribute.for_each(|tex_coord| {
+                        // need to flip/invert the y-axis of UV tex coords for wgpu/WebGPU
+                        let reverse_y_tex_coords = [tex_coord[0], 1.0 - tex_coord[1]];
+                        vertices[tex_coord_index].tex_coords = reverse_y_tex_coords;
+
+                        tex_coord_index += 1;
+                    });
+                }
+
+                let mut indices = Vec::new();
+                if let Some(indices_raw) = reader.read_indices() {
+                    indices.append(&mut indices_raw.into_u32().collect::<Vec<u32>>());
+                }
+
+                calculate_normal_tangents(&indices, &mut vertices);
+
+                let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some(&format!("{:?} Vertex Buffer", file_name)),
+                    contents: bytemuck::cast_slice(&vertices),
+                    usage: wgpu::BufferUsages::VERTEX,
+                });
+
+                let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some(&format!("{:?} Index Buffer", file_name)),
+                    contents: bytemuck::cast_slice(&indices),
+                    usage: wgpu::BufferUsages::INDEX,
+                });
+
+                let material_name = primitive.material().name().unwrap_or_default();
+                let material_index = materials.iter().position(|m| {
+                    m.name == material_name
+                });
+
+                meshes.push(Mesh {
+                    name: file_name.to_string(),
+                    vertex_buffer,
+                    index_buffer,
+                    num_elements: indices.len() as u32,
+                    material: material_index.unwrap_or(0),
+                });
+            });
+        }
+    }
+
+    Ok(Model { meshes, materials })
+}
+
 pub async fn load_model(
     file_name: &str,
     device: &wgpu::Device,
@@ -95,7 +261,6 @@ pub async fn load_model(
     let mut basepath = PathBuf::from(file_name);
     basepath.pop();
 
-    println!("LoadModel File {:?}", file_name);
 
     let (models, obj_materials) = tobj::load_obj_buf_async(
         &mut obj_reader,
@@ -120,7 +285,6 @@ pub async fn load_model(
     for m in obj_materials? {
         let diffuse_path: PathBuf = [basepath.clone(), m.diffuse_texture.clone().into()].iter().collect();
         let diffuse_path_str = {
-            println!("DiffX {:?}", m.diffuse_texture);
             if m.diffuse_texture.is_empty() {
                 DEFAULT_DIFFUSE_PATH
             } else {
@@ -129,16 +293,12 @@ pub async fn load_model(
         };
         let normal_path: PathBuf = [basepath.clone(), m.normal_texture.clone().into()].iter().collect();
         let normal_path_str = {
-            println!("NormalX {:?}", m.normal_texture);
             if m.normal_texture.is_empty() {
                 DEFAULT_NORMAL_PATH
             } else {
                 normal_path.to_str().unwrap()
             }
         };
-
-        println!("DiffPath {:?}", diffuse_path_str);
-        println!("NormalPath {:?}", normal_path_str);
 
         let diffuse_texture = load_texture(&diffuse_path_str, false, device, queue).await?;
         let normal_texture = load_texture(&normal_path_str, true, device, queue).await?;
@@ -157,7 +317,6 @@ pub async fn load_model(
     let meshes = models
         .into_iter()
         .map(|m| {
-            // println!("MODEL--- {:?}", m);
             let mut vertices = (0..m.mesh.positions.len() / 3)
                 .map(|i| ModelVertex {
                     position: [
